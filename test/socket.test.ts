@@ -33,14 +33,25 @@ test('health and the room connection lifecycle work through Socket.IO', async ()
     assert.equal(created.ok, true);
     if (!created.ok) throw new Error(created.error.message);
     const code = created.state.code;
+    assert.equal(created.selfPlayerId, rooms.playerIdFor(clients[0]!.id!));
+    assert.equal(created.state.players[0]?.id, created.selfPlayerId);
     const invalid = await clients[1]!.timeout(1000).emitWithAck('room:create', { nickname: 'Bob', id: 'chosen-by-client' });
     assert.equal(invalid.ok, false);
     if (invalid.ok) throw new Error('Expected invalid payload');
     assert.equal(invalid.error.code, 'INVALID_PAYLOAD');
-    const joined = await clients[1]!.timeout(1000).emitWithAck('room:join', { code, nickname: 'Bob' });
+    const broadcast = once(clients[0]!, 'room:state');
+    const joined = await clients[1]!.timeout(1000).emitWithAck('room:join', { code, nickname: 'Alice' });
     assert.equal(joined.ok, true);
     if (!joined.ok) throw new Error(joined.error.message);
     assert.equal(joined.state.players.length, 2);
+    assert.deepEqual(joined.state.players.map(player => player.nickname), ['Alice', 'Alice']);
+    assert.equal(joined.selfPlayerId, rooms.playerIdFor(clients[1]!.id!));
+    assert.notEqual(joined.selfPlayerId, created.selfPlayerId);
+    assert.equal(joined.state.players.some(player => player.id === joined.selfPlayerId), true);
+    assert.deepEqual((await broadcast)[0], joined.state);
+    assert.equal('selfPlayerId' in joined.state, false);
+    assert.equal('socketId' in joined.state, false);
+    assert.equal(joined.state.players.some(player => 'socketId' in player), false);
 
     const ready = await clients[1]!.timeout(1000).emitWithAck('player:set-ready', { ready: true });
     assert.equal(ready.ok, true);

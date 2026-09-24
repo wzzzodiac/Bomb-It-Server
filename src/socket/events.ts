@@ -3,13 +3,14 @@ import type { InitialMatchState, MatchState, MoveResult } from '../match/types.j
 
 export type ErrorResponse = { code: RoomErrorCode; message: string };
 export type RoomAck = { ok: true; state: PublicRoomState } | { ok: false; error: ErrorResponse };
+export type MembershipAck = { ok: true; state: PublicRoomState; selfPlayerId: string } | { ok: false; error: ErrorResponse };
 export type ActionAck = { ok: true } | { ok: false; error: ErrorResponse };
 export type StartMatchAck = { ok: true; state: InitialMatchState } | { ok: false; error: ErrorResponse };
 export type InputAck = MoveResult | { ok: false; error: ErrorResponse };
 
 export interface ClientToServerEvents {
-  'room:create': (payload: unknown, acknowledge: (result: RoomAck) => void) => void;
-  'room:join': (payload: unknown, acknowledge: (result: RoomAck) => void) => void;
+  'room:create': (payload: unknown, acknowledge: (result: MembershipAck) => void) => void;
+  'room:join': (payload: unknown, acknowledge: (result: MembershipAck) => void) => void;
   'room:leave': (acknowledge: (result: ActionAck) => void) => void;
   'player:set-ready': (payload: unknown, acknowledge: (result: RoomAck) => void) => void;
   'room:start-match': (acknowledge: (result: StartMatchAck) => void) => void;

@@ -46,7 +46,7 @@ Invalid or out-of-range numeric limits fall back to the defaults. Upper bounds a
 
 ## Socket contract
 
-Client events require an acknowledgement callback. Successful room events return `{ok:true,state}`; `room:leave` returns `{ok:true}`. Failures return `{ok:false,error:{code,message}}` and emit `room:error`.
+Client events require an acknowledgement callback. Successful `room:create` and `room:join` acknowledgements return `{ok:true,state,selfPlayerId}`, where `selfPlayerId` is the caller's server-generated logical player ID. Other successful room-state acknowledgements return `{ok:true,state}`; `room:leave` returns `{ok:true}`. Failures return `{ok:false,error:{code,message}}` and emit `room:error`.
 Rate-limited events return the stable `RATE_LIMITED` code and do not execute the room action. Repeated invalid payloads eventually disconnect the socket. A connection rejected by the per-IP cap receives a short transport-level error.
 
 | Client event | Payload | Result |

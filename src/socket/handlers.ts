@@ -4,7 +4,7 @@ import { MatchManager } from '../match/matchManager.js';
 import { RoomError } from '../rooms/types.js';
 import { AbuseGuard, type ProtectedEvent } from '../security/abuseGuard.js';
 import { parseCreatePayload, parseJoinPayload, parseMovementPayload, parseReadyPayload } from '../validation/input.js';
-import type { ActionAck, ClientToServerEvents, ErrorResponse, InputAck, RoomAck, ServerToClientEvents, StartMatchAck } from './events.js';
+import type { ActionAck, ClientToServerEvents, ErrorResponse, InputAck, MembershipAck, RoomAck, ServerToClientEvents, StartMatchAck } from './events.js';
 
 export function registerSocketHandlers(
   io: Server<ClientToServerEvents, ServerToClientEvents>,
@@ -39,7 +39,7 @@ export function registerSocketHandlers(
       if (guard.recordInvalid(socket.id, result.code)) socket.disconnect();
     }
 
-    function respond<T extends RoomAck | ActionAck | StartMatchAck | InputAck>(event: ProtectedEvent, acknowledge: unknown, action: () => T): void {
+    function respond<T extends MembershipAck | RoomAck | ActionAck | StartMatchAck | InputAck>(event: ProtectedEvent, acknowledge: unknown, action: () => T): void {
       if (!guard.allowEvent(socket.id, event)) {
         reject(acknowledge, new RoomError('RATE_LIMITED', 'Too many requests. Try again shortly.'));
         return;
@@ -61,17 +61,19 @@ export function registerSocketHandlers(
     socket.on('room:create', (payload, acknowledge) => respond('room:create', acknowledge, () => {
       const { nickname } = parseCreatePayload(payload);
       const state = rooms.create(socket.id, nickname);
+      const selfPlayerId = rooms.playerIdFor(socket.id)!;
       socket.join(state.code);
       io.to(state.code).emit('room:state', state);
-      return { ok: true, state };
+      return { ok: true, state, selfPlayerId };
     }));
 
     socket.on('room:join', (payload, acknowledge) => respond('room:join', acknowledge, () => {
       const { code, nickname } = parseJoinPayload(payload);
       const state = rooms.join(socket.id, code, nickname);
+      const selfPlayerId = rooms.playerIdFor(socket.id)!;
       socket.join(code);
       io.to(code).emit('room:state', state);
-      return { ok: true, state };
+      return { ok: true, state, selfPlayerId };
     }));
 
     socket.on('room:leave', acknowledge => respond('room:leave', acknowledge, () => {
