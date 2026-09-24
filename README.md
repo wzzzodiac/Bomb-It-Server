@@ -1,10 +1,10 @@
 # Bomb-It-Server
 
-The planned multiplayer backend for [Bomb-It](https://github.com/wzzzodiac/Bomb-It). This repository currently provides the **ROOM / CONNECTION FOUNDATION**, not **FULL MULTIPLAYER GAMEPLAY**. The browser game is a separate repository and is not connected to this server yet.
+The multiplayer backend for [Bomb-It](https://github.com/wzzzodiac/Bomb-It). This repository now provides the **SERVER-AUTHORITATIVE MATCH FOUNDATION**, not full multiplayer gameplay. The existing functional browser game remains the gameplay reference and is not connected to this server yet.
 
 ## What runs today
 
-A Node.js HTTP server serves `GET /health`; Socket.IO handles room membership. `RoomManager` owns in-memory rooms and server-generated player IDs. Socket handlers validate input and publish a public room state without socket IDs. Rooms disappear after their last player leaves. The host role passes to the earliest remaining player.
+A Node.js HTTP server serves `GET /health`; Socket.IO handles room membership and match inputs. `RoomManager` owns in-memory rooms and server-generated player IDs. `MatchManager` owns each online match's arena and player positions. Socket handlers validate inputs and publish public states without socket IDs. Rooms and matches disappear after their last player leaves; the host role passes to the earliest remaining player.
 
 ## Local setup
 
@@ -39,8 +39,10 @@ npm start
 | `ROOM_CREATE_WINDOW_MS` | `60000` | Creation window length in milliseconds |
 | `MAX_INVALID_REQUESTS` | `8` | Invalid requests before a socket is disconnected |
 | `MAX_PAYLOAD_BYTES` | `4096` | Maximum Engine.IO message size in bytes |
+| `MAX_INPUTS_PER_WINDOW` | `120` | Gameplay movement inputs per socket per input window, separate from lobby events |
+| `INPUT_WINDOW_MS` | `10000` | Gameplay input window length in milliseconds |
 
-Invalid or out-of-range numeric limits fall back to the defaults. Upper bounds are 20 connections per IP, 80 events per window, 6 room creation attempts per window, 12 invalid requests, and 8192 payload bytes. Event windows accept 5000–60000 ms; creation windows accept 30000–300000 ms. The server binds to `0.0.0.0` and uses `PORT`, so it can later run under Cloud Run's container contract. No Cloud deployment is configured here.
+Invalid or out-of-range numeric limits fall back to the defaults. Upper bounds are 20 connections per IP, 80 lobby events per window, 6 room creation attempts per window, 12 invalid requests, 8192 payload bytes, and 240 gameplay inputs per window. Event windows accept 5000–60000 ms; creation windows accept 30000–300000 ms; gameplay windows accept 5000–10000 ms and at least 80 inputs. The server binds to `0.0.0.0` and uses `PORT`, so it can later run under Cloud Run's container contract. No Cloud deployment is configured here.
 
 ## Socket contract
 
@@ -53,8 +55,14 @@ Rate-limited events return the stable `RATE_LIMITED` code and do not execute the
 | `room:join` | `{code,nickname}` | Joins an existing lobby room |
 | `room:leave` | none | Removes the caller |
 | `player:set-ready` | `{ready:boolean}` | Updates only the caller's ready flag |
+| `room:start-match` | none | Host starts after at least two humans are ready; returns `{ok:true,state:MatchState}` |
+| `player:input` | `{direction:"up"|"down"|"left"|"right"}` | Requests one tile of movement; returns `{ok:true,moved:true,revision}` or `{ok:true,moved:false,reason:"blocked"|"cooldown"}` |
 
-On connection the server emits `server:hello`. Membership changes emit `room:state` to the room. An explicit leave emits `room:left` to the caller. A disconnect removes membership and updates remaining players.
+On connection the server emits `server:hello`. Membership changes emit `room:state` to the room. Match start, accepted movement, and in-match departures emit `match:state`. An explicit leave emits `room:left` to the caller. A disconnect removes membership and updates remaining players.
+
+The server ports Bomb-It's pure arena rules: 1–2 players use 17×13, 3–4 use 21×17, and 5–6 use 25×19. The serialized arena includes every wall, pillar, crate, and safe spawn tile, so clients render the server-generated map rather than generating their own. Players start at the same dimension-derived spawns with `alive=true`, bomb capacity 1, fire range 2, and zero active bombs. Match snapshots contain a monotonically increasing revision and are copied before publication. The client sends only direction; identity, position, arena, and revision remain server-owned. A move enters only a free floor tile and is subject to a server-side 135 ms accepted-move cooldown. Blocked and cooldown moves do not change state or count as invalid requests.
+
+Gameplay input has its own 120-per-10-second rate bucket, safely above the approximately 74 accepted moves per 10 seconds possible at the cooldown. The existing 40-per-10-second lobby event bucket still protects `room:start-match` and other room events. This is a per-socket traffic bound, not a replacement for movement validation.
 
 The public state contains `code`, `status`, `hostPlayerId`, and players with `id`, `nickname`, `ready`, and `host`. It excludes socket IDs. Codes are four characters from an alphabet without easily confused characters. Nicknames are trimmed, whitespace is collapsed, and length is limited to 18 characters.
 
@@ -64,4 +72,4 @@ The abuse counters and rooms are process-local. The IP cap uses the direct trans
 
 ## Next phase
 
-Implement the first server-authoritative gameplay slice: start a match from a ready room, select the existing arena preset, accept bounded player inputs, and broadcast a minimal authoritative state. Movement, bombs, explosions, outcomes, reconnects, storage, and deployment are not implemented yet.
+Connect the Bomb-It frontend to this server locally for online mode while preserving local Quick Play and the current visual/mobile UX. Server-side bomb placement, fuse, chain explosions, crate destruction, power-ups, deaths, winner/draw evaluation, bots, reconnects, storage, and Cloud Run deployment are not implemented yet.

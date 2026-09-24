@@ -1,13 +1,15 @@
 import type { Server } from 'socket.io';
 import { RoomManager } from '../rooms/roomManager.js';
+import { MatchManager } from '../match/matchManager.js';
 import { RoomError } from '../rooms/types.js';
 import { AbuseGuard, type ProtectedEvent } from '../security/abuseGuard.js';
-import { parseCreatePayload, parseJoinPayload, parseReadyPayload } from '../validation/input.js';
-import type { ActionAck, ClientToServerEvents, ErrorResponse, RoomAck, ServerToClientEvents } from './events.js';
+import { parseCreatePayload, parseJoinPayload, parseMovementPayload, parseReadyPayload } from '../validation/input.js';
+import type { ActionAck, ClientToServerEvents, ErrorResponse, InputAck, RoomAck, ServerToClientEvents, StartMatchAck } from './events.js';
 
 export function registerSocketHandlers(
   io: Server<ClientToServerEvents, ServerToClientEvents>,
   rooms: RoomManager,
+  matches: MatchManager,
   guard: AbuseGuard
 ): void {
   io.use((socket, next) => {
@@ -31,7 +33,7 @@ export function registerSocketHandlers(
       if (guard.recordInvalid(socket.id, result.code)) socket.disconnect();
     }
 
-    function respond<T extends RoomAck | ActionAck>(event: ProtectedEvent, acknowledge: unknown, action: () => T): void {
+    function respond<T extends RoomAck | ActionAck | StartMatchAck | InputAck>(event: ProtectedEvent, acknowledge: unknown, action: () => T): void {
       if (!guard.allowEvent(socket.id, event)) {
         reject(acknowledge, new RoomError('RATE_LIMITED', 'Too many requests. Try again shortly.'));
         return;
@@ -67,10 +69,13 @@ export function registerSocketHandlers(
     }));
 
     socket.on('room:leave', acknowledge => respond('room:leave', acknowledge, () => {
+      const playerId = rooms.playerIdFor(socket.id);
       const { code, state } = rooms.leave(socket.id);
+      const matchState = playerId ? matches.leave(code, playerId) : null;
       socket.leave(code);
       socket.emit('room:left', { code });
       if (state) io.to(code).emit('room:state', state);
+      if (matchState) io.to(code).emit('match:state', matchState);
       return { ok: true };
     }));
 
@@ -81,10 +86,33 @@ export function registerSocketHandlers(
       return { ok: true, state };
     }));
 
+    socket.on('room:start-match', acknowledge => respond('room:start-match', acknowledge, () => {
+      const { room, match } = matches.start(socket.id);
+      io.to(room.code).emit('room:state', room);
+      io.to(room.code).emit('match:state', match);
+      return { ok: true, state: match };
+    }));
+
+    socket.on('player:input', (payload, acknowledge) => respond('player:input', acknowledge, () => {
+      const { direction } = parseMovementPayload(payload);
+      const result = matches.move(socket.id, direction);
+      if (result.moved) {
+        const code = rooms.roomCodeFor(socket.id)!;
+        io.to(code).emit('match:state', matches.snapshot(code));
+      }
+      return result;
+    }));
+
     socket.on('disconnect', () => {
-      if (!rooms.roomCodeFor(socket.id)) return;
-      const { code, state } = rooms.leave(socket.id);
+      // Namespace disconnect can precede transport close; release is idempotent.
+      guard.release(socket.id);
+      const code = rooms.roomCodeFor(socket.id);
+      const playerId = rooms.playerIdFor(socket.id);
+      if (!code || !playerId) return;
+      const { state } = rooms.leave(socket.id);
+      const matchState = matches.leave(code, playerId);
       if (state) io.to(code).emit('room:state', state);
+      if (matchState) io.to(code).emit('match:state', matchState);
     });
   });
 }

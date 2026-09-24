@@ -1,13 +1,14 @@
 import type { ServerConfig } from '../config.js';
 import type { RoomErrorCode } from '../rooms/types.js';
 
-export type ProtectedEvent = 'room:create' | 'room:join' | 'room:leave' | 'player:set-ready';
+export type ProtectedEvent = 'room:create' | 'room:join' | 'room:leave' | 'player:set-ready' | 'room:start-match' | 'player:input';
 
 type Window = { startedAt: number; count: number };
-type SocketUsage = { address: string; events: Window; creates: Window; invalidRequests: number };
+type SocketUsage = { address: string; events: Window; creates: Window; inputs: Window; invalidRequests: number };
 type AbuseLimits = Pick<ServerConfig,
   'maxConnectionsPerIp' | 'maxEventsPerWindow' | 'eventWindowMs' |
-  'maxRoomCreatesPerWindow' | 'roomCreateWindowMs' | 'maxInvalidRequests'>;
+  'maxRoomCreatesPerWindow' | 'roomCreateWindowMs' | 'maxInvalidRequests' |
+  'maxInputsPerWindow' | 'inputWindowMs'>;
 
 const INVALID_CODES: ReadonlySet<RoomErrorCode> = new Set([
   'INVALID_PAYLOAD', 'INVALID_NICKNAME', 'INVALID_ROOM_CODE', 'INVALID_READY'
@@ -39,6 +40,7 @@ export class AbuseGuard {
       address: resolved,
       events: { startedAt, count: 0 },
       creates: { startedAt, count: 0 },
+      inputs: { startedAt, count: 0 },
       invalidRequests: 0
     });
     this.connectionsByAddress.set(resolved, count + 1);
@@ -49,6 +51,7 @@ export class AbuseGuard {
     const usage = this.sockets.get(socketId);
     if (!usage) return false;
     const now = this.now();
+    if (event === 'player:input') return this.consume(usage.inputs, this.limits.maxInputsPerWindow, this.limits.inputWindowMs, now);
     if (!this.consume(usage.events, this.limits.maxEventsPerWindow, this.limits.eventWindowMs, now)) return false;
     return event !== 'room:create' ||
       this.consume(usage.creates, this.limits.maxRoomCreatesPerWindow, this.limits.roomCreateWindowMs, now);

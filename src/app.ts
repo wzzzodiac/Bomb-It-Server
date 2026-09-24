@@ -2,12 +2,14 @@ import { createServer as createHttpServer } from 'node:http';
 import { Server } from 'socket.io';
 import type { ServerConfig } from './config.js';
 import { RoomManager } from './rooms/roomManager.js';
+import { MatchManager } from './match/matchManager.js';
 import { AbuseGuard } from './security/abuseGuard.js';
 import { registerSocketHandlers } from './socket/handlers.js';
 import type { ClientToServerEvents, ServerToClientEvents } from './socket/events.js';
 
-export function createApp(config: ServerConfig) {
+export function createApp(config: ServerConfig, matchOptions: { now?: () => number; random?: () => number } = {}) {
   const rooms = new RoomManager(config);
+  const matches = new MatchManager(rooms, matchOptions.now, matchOptions.random);
   const guard = new AbuseGuard(config);
   const httpServer = createHttpServer((request, response) => {
     if (request.method === 'GET' && request.url === '/health') {
@@ -26,6 +28,6 @@ export function createApp(config: ServerConfig) {
       accept(null, origin === undefined || origin === config.clientOrigin);
     }
   });
-  registerSocketHandlers(io, rooms, guard);
-  return { httpServer, io, rooms, guard };
+  registerSocketHandlers(io, rooms, matches, guard);
+  return { httpServer, io, rooms, matches, guard };
 }

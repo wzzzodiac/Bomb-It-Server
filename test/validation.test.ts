@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readConfig } from '../src/config.js';
 import { RoomError } from '../src/rooms/types.js';
-import { parseCreatePayload, parseJoinPayload, parseNickname, parseReadyPayload, parseRoomCode } from '../src/validation/input.js';
+import { parseCreatePayload, parseJoinPayload, parseMovementPayload, parseNickname, parseReadyPayload, parseRoomCode } from '../src/validation/input.js';
 
 function rejects(action: () => unknown, code: RoomError['code']): void {
   assert.throws(action, error => error instanceof RoomError && error.code === code);
@@ -29,6 +29,9 @@ test('event payloads reject extra client identity and non-boolean ready', () => 
   rejects(() => parseCreatePayload({ nickname: 'Ada', id: 'client-chosen' }), 'INVALID_PAYLOAD');
   rejects(() => parseJoinPayload(null), 'INVALID_PAYLOAD');
   rejects(() => parseReadyPayload({ ready: 'true' }), 'INVALID_READY');
+  assert.deepEqual(parseMovementPayload({ direction: 'left' }), { direction: 'left' });
+  rejects(() => parseMovementPayload({ direction: 'diagonal' }), 'INVALID_PAYLOAD');
+  rejects(() => parseMovementPayload({ direction: 'up', x: 7 }), 'INVALID_PAYLOAD');
 });
 
 test('configuration defaults and caps room limits while respecting PORT and origin', () => {
@@ -36,7 +39,7 @@ test('configuration defaults and caps room limits while respecting PORT and orig
     port: 8080, clientOrigin: 'http://localhost:5173', maxRooms: 5, maxPlayersPerRoom: 6,
     maxConnectionsPerIp: 10, maxEventsPerWindow: 40, eventWindowMs: 10_000,
     maxRoomCreatesPerWindow: 3, roomCreateWindowMs: 60_000,
-    maxInvalidRequests: 8, maxPayloadBytes: 4096
+    maxInvalidRequests: 8, maxPayloadBytes: 4096, maxInputsPerWindow: 120, inputWindowMs: 10_000
   });
   assert.deepEqual(readConfig({ PORT: '9000', CLIENT_ORIGIN: 'https://wzzzodiac.github.io', MAX_ROOMS: '3', MAX_PLAYERS_PER_ROOM: '4' }), {
     ...readConfig({}), port: 9000, clientOrigin: 'https://wzzzodiac.github.io', maxRooms: 3, maxPlayersPerRoom: 4
@@ -54,6 +57,8 @@ test('abuse settings accept bounded values and reject unsafe overrides', () => {
   assert.equal(readConfig({ ROOM_CREATE_WINDOW_MS: '30000' }).roomCreateWindowMs, 30000);
   assert.equal(readConfig({ MAX_INVALID_REQUESTS: '3' }).maxInvalidRequests, 3);
   assert.equal(readConfig({ MAX_PAYLOAD_BYTES: '2048' }).maxPayloadBytes, 2048);
+  assert.equal(readConfig({ MAX_INPUTS_PER_WINDOW: '100' }).maxInputsPerWindow, 100);
+  assert.equal(readConfig({ INPUT_WINDOW_MS: '5000' }).inputWindowMs, 5000);
   assert.equal(readConfig({ MAX_CONNECTIONS_PER_IP: '9999' }).maxConnectionsPerIp, defaults.maxConnectionsPerIp);
   assert.equal(readConfig({ MAX_EVENTS_PER_WINDOW: '9999' }).maxEventsPerWindow, defaults.maxEventsPerWindow);
   assert.equal(readConfig({ EVENT_WINDOW_MS: '1' }).eventWindowMs, defaults.eventWindowMs);
@@ -61,4 +66,7 @@ test('abuse settings accept bounded values and reject unsafe overrides', () => {
   assert.equal(readConfig({ ROOM_CREATE_WINDOW_MS: '1' }).roomCreateWindowMs, defaults.roomCreateWindowMs);
   assert.equal(readConfig({ MAX_INVALID_REQUESTS: '9999' }).maxInvalidRequests, defaults.maxInvalidRequests);
   assert.equal(readConfig({ MAX_PAYLOAD_BYTES: '999999' }).maxPayloadBytes, defaults.maxPayloadBytes);
+  assert.equal(readConfig({ MAX_INPUTS_PER_WINDOW: '9999' }).maxInputsPerWindow, defaults.maxInputsPerWindow);
+  assert.equal(readConfig({ INPUT_WINDOW_MS: '1' }).inputWindowMs, defaults.inputWindowMs);
+  assert.equal(readConfig({ INPUT_WINDOW_MS: '60000' }).inputWindowMs, defaults.inputWindowMs);
 });

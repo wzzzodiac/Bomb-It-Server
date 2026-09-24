@@ -1,5 +1,6 @@
 import { MAX_NICKNAME_LENGTH, ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH } from '../config.js';
 import { RoomError } from '../rooms/types.js';
+import { VECTORS, type Direction } from '../game/config.js';
 
 function oneField(value: unknown, field: string): unknown {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
@@ -53,4 +54,12 @@ export function parseJoinPayload(value: unknown): { code: string; nickname: stri
 
 export function parseReadyPayload(value: unknown): { ready: boolean } {
   return { ready: parseReady(oneField(value, 'ready')) };
+}
+
+export function parseMovementPayload(value: unknown): { direction: Direction } {
+  const direction = oneField(value, 'direction');
+  if (typeof direction !== 'string' || !Object.hasOwn(VECTORS, direction)) {
+    throw new RoomError('INVALID_PAYLOAD', 'Direction is invalid.');
+  }
+  return { direction: direction as Direction };
 }

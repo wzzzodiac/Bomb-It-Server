@@ -10,6 +10,8 @@ export const MAX_ROOM_CREATES_PER_WINDOW = 3;
 export const ROOM_CREATE_WINDOW_MS = 60_000;
 export const MAX_INVALID_REQUESTS = 8;
 export const MAX_PAYLOAD_BYTES = 4096;
+export const MAX_INPUTS_PER_WINDOW = 120;
+export const INPUT_WINDOW_MS = 10_000;
 
 export type ServerConfig = {
   port: number;
@@ -23,6 +25,8 @@ export type ServerConfig = {
   roomCreateWindowMs: number;
   maxInvalidRequests: number;
   maxPayloadBytes: number;
+  maxInputsPerWindow: number;
+  inputWindowMs: number;
 };
 
 function boundedInteger(value: string | undefined, fallback: number, maximum: number, minimum = 1): number {
@@ -48,6 +52,8 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     maxRoomCreatesPerWindow: boundedInteger(env.MAX_ROOM_CREATES_PER_WINDOW, MAX_ROOM_CREATES_PER_WINDOW, 6),
     roomCreateWindowMs: boundedInteger(env.ROOM_CREATE_WINDOW_MS, ROOM_CREATE_WINDOW_MS, 300_000, 30_000),
     maxInvalidRequests: boundedInteger(env.MAX_INVALID_REQUESTS, MAX_INVALID_REQUESTS, 12),
-    maxPayloadBytes: boundedInteger(env.MAX_PAYLOAD_BYTES, MAX_PAYLOAD_BYTES, 8192, 512)
+    maxPayloadBytes: boundedInteger(env.MAX_PAYLOAD_BYTES, MAX_PAYLOAD_BYTES, 8192, 512),
+    maxInputsPerWindow: boundedInteger(env.MAX_INPUTS_PER_WINDOW, MAX_INPUTS_PER_WINDOW, 240, 80),
+    inputWindowMs: boundedInteger(env.INPUT_WINDOW_MS, INPUT_WINDOW_MS, 10_000, 5000)
   };
 }

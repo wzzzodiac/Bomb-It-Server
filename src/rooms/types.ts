@@ -26,7 +26,8 @@ export type PublicRoomState = {
 export type RoomErrorCode =
   | 'INVALID_PAYLOAD' | 'INVALID_NICKNAME' | 'INVALID_ROOM_CODE' | 'INVALID_READY'
   | 'ROOM_NOT_FOUND' | 'ROOM_FULL' | 'ROOM_LIMIT_REACHED'
-  | 'ALREADY_IN_ROOM' | 'NOT_IN_ROOM' | 'ROOM_NOT_JOINABLE' | 'RATE_LIMITED' | 'INTERNAL_ERROR';
+  | 'ALREADY_IN_ROOM' | 'NOT_IN_ROOM' | 'ROOM_NOT_JOINABLE' | 'RATE_LIMITED' | 'INTERNAL_ERROR'
+  | 'NOT_HOST' | 'PLAYERS_NOT_READY' | 'NOT_ENOUGH_PLAYERS' | 'MATCH_ALREADY_STARTED' | 'MATCH_NOT_STARTED';
 
 export class RoomError extends Error {
   constructor(readonly code: RoomErrorCode, message: string) {

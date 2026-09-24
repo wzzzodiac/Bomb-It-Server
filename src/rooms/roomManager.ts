@@ -91,7 +91,21 @@ export class RoomManager {
     return this.state(room.code);
   }
 
+  startMatch(socketId: string): { state: PublicRoomState; players: Array<{ id: string; nickname: string }> } {
+    const member = this.membership.get(socketId);
+    if (!member) throw new RoomError('NOT_IN_ROOM', 'Socket is not in a room.');
+    const room = this.rooms.get(member.code);
+    if (!room) throw new Error('Room membership is inconsistent.');
+    if (room.status !== 'lobby') throw new RoomError('MATCH_ALREADY_STARTED', 'Match already started.');
+    if (room.hostPlayerId !== member.playerId) throw new RoomError('NOT_HOST', 'Only the host can start.');
+    if (room.players.length < 2) throw new RoomError('NOT_ENOUGH_PLAYERS', 'At least two players are required.');
+    if (room.players.some(player => !player.ready)) throw new RoomError('PLAYERS_NOT_READY', 'All players must be ready.');
+    room.status = 'playing';
+    return { state: this.state(room.code), players: room.players.map(player => ({ id: player.id, nickname: player.nickname })) };
+  }
+
   roomCodeFor(socketId: string): string | undefined { return this.membership.get(socketId)?.code; }
+  playerIdFor(socketId: string): string | undefined { return this.membership.get(socketId)?.playerId; }
 
   state(code: string): PublicRoomState {
     const room = this.rooms.get(code);
