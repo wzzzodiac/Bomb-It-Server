@@ -82,7 +82,6 @@ export function registerSocketHandlers(
     }));
 
     socket.on('disconnect', () => {
-      guard.release(socket.id);
       if (!rooms.roomCodeFor(socket.id)) return;
       const { code, state } = rooms.leave(socket.id);
       if (state) io.to(code).emit('room:state', state);
