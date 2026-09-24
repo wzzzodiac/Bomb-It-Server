@@ -2,11 +2,13 @@ import { createServer as createHttpServer } from 'node:http';
 import { Server } from 'socket.io';
 import type { ServerConfig } from './config.js';
 import { RoomManager } from './rooms/roomManager.js';
+import { AbuseGuard } from './security/abuseGuard.js';
 import { registerSocketHandlers } from './socket/handlers.js';
 import type { ClientToServerEvents, ServerToClientEvents } from './socket/events.js';
 
 export function createApp(config: ServerConfig) {
   const rooms = new RoomManager(config);
+  const guard = new AbuseGuard(config);
   const httpServer = createHttpServer((request, response) => {
     if (request.method === 'GET' && request.url === '/health') {
       response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
@@ -17,12 +19,13 @@ export function createApp(config: ServerConfig) {
     response.end(JSON.stringify({ error: 'Not found' }));
   });
   const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
+    maxHttpBufferSize: config.maxPayloadBytes,
     cors: { origin: config.clientOrigin, methods: ['GET', 'POST'] },
     allowRequest: (request, accept) => {
       const origin = request.headers.origin;
       accept(null, origin === undefined || origin === config.clientOrigin);
     }
   });
-  registerSocketHandlers(io, rooms);
-  return { httpServer, io, rooms };
+  registerSocketHandlers(io, rooms, guard);
+  return { httpServer, io, rooms, guard };
 }

@@ -26,7 +26,7 @@ export type PublicRoomState = {
 export type RoomErrorCode =
   | 'INVALID_PAYLOAD' | 'INVALID_NICKNAME' | 'INVALID_ROOM_CODE' | 'INVALID_READY'
   | 'ROOM_NOT_FOUND' | 'ROOM_FULL' | 'ROOM_LIMIT_REACHED'
-  | 'ALREADY_IN_ROOM' | 'NOT_IN_ROOM' | 'ROOM_NOT_JOINABLE' | 'INTERNAL_ERROR';
+  | 'ALREADY_IN_ROOM' | 'NOT_IN_ROOM' | 'ROOM_NOT_JOINABLE' | 'RATE_LIMITED' | 'INTERNAL_ERROR';
 
 export class RoomError extends Error {
   constructor(readonly code: RoomErrorCode, message: string) {

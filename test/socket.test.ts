@@ -3,12 +3,11 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { io as connect } from 'socket.io-client';
 import { createApp } from '../src/app.js';
+import { readConfig } from '../src/config.js';
 import type { ClientToServerEvents, ServerToClientEvents } from '../src/socket/events.js';
 
 test('health and the room connection lifecycle work through Socket.IO', async () => {
-  const { httpServer, io, rooms } = createApp({
-    port: 8080, clientOrigin: 'http://localhost:5173', maxRooms: 5, maxPlayersPerRoom: 6
-  });
+  const { httpServer, io, rooms } = createApp(readConfig({}));
   httpServer.listen(0, '127.0.0.1');
   await once(httpServer, 'listening');
   const address = httpServer.address();
