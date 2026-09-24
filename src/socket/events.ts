@@ -1,10 +1,10 @@
 import type { PublicRoomState, RoomErrorCode } from '../rooms/types.js';
-import type { MatchState, MoveResult } from '../match/types.js';
+import type { InitialMatchState, MatchState, MoveResult } from '../match/types.js';
 
 export type ErrorResponse = { code: RoomErrorCode; message: string };
 export type RoomAck = { ok: true; state: PublicRoomState } | { ok: false; error: ErrorResponse };
 export type ActionAck = { ok: true } | { ok: false; error: ErrorResponse };
-export type StartMatchAck = { ok: true; state: MatchState } | { ok: false; error: ErrorResponse };
+export type StartMatchAck = { ok: true; state: InitialMatchState } | { ok: false; error: ErrorResponse };
 export type InputAck = MoveResult | { ok: false; error: ErrorResponse };
 
 export interface ClientToServerEvents {
@@ -21,5 +21,6 @@ export interface ServerToClientEvents {
   'room:state': (state: PublicRoomState) => void;
   'room:error': (error: ErrorResponse) => void;
   'room:left': (payload: { code: string }) => void;
+  'match:started': (state: InitialMatchState) => void;
   'match:state': (state: MatchState) => void;
 }

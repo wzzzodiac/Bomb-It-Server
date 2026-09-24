@@ -66,10 +66,30 @@ test('host start requires two ready players and yields an isolated authoritative
   assert.equal(JSON.stringify(match).includes('socketId'), false);
   match.arena.tiles[1]![1] = 'crate';
   match.players[0]!.position.x = 99;
-  assert.equal(matches.snapshot(roomCode).arena.tiles[1]![1], 'floor');
+  assert.equal(matches.initialSnapshot(roomCode).arena.tiles[1]![1], 'floor');
+  assert.equal(matches.snapshot(roomCode).players[0]!.position.x, 1);
+  const dynamic = matches.snapshot(roomCode);
+  assert.equal('arena' in dynamic, false);
+  dynamic.players[0]!.position.x = 88;
   assert.equal(matches.snapshot(roomCode).players[0]!.position.x, 1);
   code(() => matches.start('host'), 'MATCH_ALREADY_STARTED');
   code(() => rooms.join('third', roomCode, 'Carol'), 'ROOM_NOT_JOINABLE');
+});
+
+test('failed arena creation leaves a ready lobby and no match, then retry succeeds', () => {
+  let fail = true;
+  const { rooms, matches, code: roomCode } = setup(() => {
+    if (fail) { fail = false; throw new Error('Injected arena failure'); }
+    return 1;
+  });
+  rooms.setReady('host', true);
+  rooms.setReady('guest', true);
+  assert.throws(() => matches.start('host'), /Injected arena failure/);
+  assert.equal(rooms.state(roomCode).status, 'lobby');
+  assert.deepEqual(rooms.state(roomCode).players.map(player => player.ready), [true, true]);
+  assert.equal(matches.matchCount, 0);
+  assert.equal(matches.start('host').room.status, 'playing');
+  assert.equal(matches.matchCount, 1);
 });
 
 test('single-player room cannot start', () => {
@@ -106,7 +126,8 @@ test('leaving a match increments revision and deleting its last room removes mat
   const remaining = matches.leave(roomCode, 'p2');
   assert.equal(remaining?.revision, 2);
   assert.deepEqual(remaining?.players.map(player => player.id), ['p1']);
-  assert.equal(matches.leave(roomCode, 'p2')?.revision, 2);
+  assert.equal(matches.leave(roomCode, 'p2'), null);
+  assert.equal(matches.snapshot(roomCode).revision, 2);
   rooms.leave('host');
   assert.equal(matches.leave(roomCode, 'p1'), null);
   assert.equal(matches.matchCount, 0);

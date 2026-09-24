@@ -15,8 +15,11 @@ export type MatchState = {
   roomCode: string;
   status: 'playing';
   revision: number;
-  arena: { cols: number; rows: number; tiles: Tile[][] };
   players: MatchPlayer[];
+};
+
+export type InitialMatchState = MatchState & {
+  arena: { cols: number; rows: number; tiles: Tile[][] };
 };
 
 export type InternalMatch = { state: MatchState; arena: Arena; lastAcceptedMove: Map<string, number> };

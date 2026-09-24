@@ -2,7 +2,7 @@ import { allocateSpawns, createArena, tileAt } from '../game/arena.js';
 import { getArenaSizeForPlayerCount, VECTORS, type Direction } from '../game/config.js';
 import { RoomManager } from '../rooms/roomManager.js';
 import { RoomError } from '../rooms/types.js';
-import type { InternalMatch, MatchState, MoveResult } from './types.js';
+import type { InitialMatchState, InternalMatch, MatchState, MoveResult } from './types.js';
 
 export const MOVE_COOLDOWN_MS = 135;
 
@@ -17,32 +17,50 @@ export class MatchManager {
 
   get matchCount(): number { return this.matches.size; }
 
-  start(socketId: string): { room: ReturnType<RoomManager['state']>; match: MatchState } {
-    const { state: room, players } = this.rooms.startMatch(socketId);
+  start(socketId: string): { room: ReturnType<RoomManager['state']>; match: InitialMatchState } {
+    const { code, players } = this.rooms.prepareMatchStart(socketId);
     const { cols, rows } = getArenaSizeForPlayerCount(players.length);
     const arena = createArena({ cols, rows, playerCount: players.length, random: this.random });
     const spawns = allocateSpawns(players.length, cols, rows);
     const state: MatchState = {
-      roomCode: room.code, status: 'playing', revision: 1,
-      arena: { cols, rows, tiles: arena },
+      roomCode: code, status: 'playing', revision: 1,
       players: players.map((player, index) => ({
         id: player.id, name: player.nickname, position: spawns[index]!, alive: true,
         bombCapacity: 1, fireRange: 2, activeBombs: 0
       }))
     };
-    this.matches.set(room.code, { state, arena, lastAcceptedMove: new Map() });
-    return { room, match: this.snapshot(room.code) };
+    this.matches.set(code, { state, arena, lastAcceptedMove: new Map() });
+    try {
+      const match = this.initialSnapshot(code);
+      const room = this.rooms.commitMatchStart(socketId);
+      return { room, match };
+    } catch (error) {
+      this.matches.delete(code);
+      throw error;
+    }
+  }
+
+  initialSnapshot(code: string): InitialMatchState {
+    const match = this.getMatch(code);
+    return {
+      ...this.snapshot(code),
+      arena: { cols: match.arena[0]!.length, rows: match.arena.length, tiles: match.arena.map(row => [...row]) }
+    };
   }
 
   snapshot(code: string): MatchState {
-    const match = this.matches.get(code);
-    if (!match) throw new RoomError('MATCH_NOT_STARTED', 'Match has not started.');
+    const match = this.getMatch(code);
     const state = match.state;
     return {
       ...state,
-      arena: { ...state.arena, tiles: state.arena.tiles.map(row => [...row]) },
       players: state.players.map(player => ({ ...player, position: { ...player.position } }))
     };
+  }
+
+  private getMatch(code: string): InternalMatch {
+    const match = this.matches.get(code);
+    if (!match) throw new RoomError('MATCH_NOT_STARTED', 'Match has not started.');
+    return match;
   }
 
   move(socketId: string, direction: Direction): MoveResult {
@@ -70,14 +88,14 @@ export class MatchManager {
   leave(code: string, playerId: string): MatchState | null {
     const match = this.matches.get(code);
     if (!match) return null;
-    const before = match.state.players.length;
+    if (!match.state.players.some(player => player.id === playerId)) return null;
     match.state.players = match.state.players.filter(player => player.id !== playerId);
     match.lastAcceptedMove.delete(playerId);
     if (match.state.players.length === 0) {
       this.matches.delete(code);
       return null;
     }
-    if (match.state.players.length !== before) match.state.revision++;
+    match.state.revision++;
     return this.snapshot(code);
   }
 }

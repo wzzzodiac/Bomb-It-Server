@@ -24,6 +24,12 @@ export function registerSocketHandlers(
   io.on('connection', socket => {
     socket.emit('server:hello', { service: 'bomb-it-server' });
 
+    function leaveJoinedRoom() {
+      const playerId = rooms.playerIdFor(socket.id);
+      const { code, state } = rooms.leave(socket.id);
+      return { code, state, matchState: playerId ? matches.leave(code, playerId) : null };
+    }
+
     function reject(acknowledge: unknown, error: unknown): void {
       const result: ErrorResponse = error instanceof RoomError
         ? { code: error.code, message: error.message }
@@ -69,9 +75,7 @@ export function registerSocketHandlers(
     }));
 
     socket.on('room:leave', acknowledge => respond('room:leave', acknowledge, () => {
-      const playerId = rooms.playerIdFor(socket.id);
-      const { code, state } = rooms.leave(socket.id);
-      const matchState = playerId ? matches.leave(code, playerId) : null;
+      const { code, state, matchState } = leaveJoinedRoom();
       socket.leave(code);
       socket.emit('room:left', { code });
       if (state) io.to(code).emit('room:state', state);
@@ -89,7 +93,7 @@ export function registerSocketHandlers(
     socket.on('room:start-match', acknowledge => respond('room:start-match', acknowledge, () => {
       const { room, match } = matches.start(socket.id);
       io.to(room.code).emit('room:state', room);
-      io.to(room.code).emit('match:state', match);
+      io.to(room.code).emit('match:started', match);
       return { ok: true, state: match };
     }));
 
@@ -107,10 +111,8 @@ export function registerSocketHandlers(
       // Namespace disconnect can precede transport close; release is idempotent.
       guard.release(socket.id);
       const code = rooms.roomCodeFor(socket.id);
-      const playerId = rooms.playerIdFor(socket.id);
-      if (!code || !playerId) return;
-      const { state } = rooms.leave(socket.id);
-      const matchState = matches.leave(code, playerId);
+      if (!code) return;
+      const { state, matchState } = leaveJoinedRoom();
       if (state) io.to(code).emit('room:state', state);
       if (matchState) io.to(code).emit('match:state', matchState);
     });
