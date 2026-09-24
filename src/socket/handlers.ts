@@ -61,7 +61,8 @@ export function registerSocketHandlers(
     socket.on('room:create', (payload, acknowledge) => respond('room:create', acknowledge, () => {
       const { nickname } = parseCreatePayload(payload);
       const state = rooms.create(socket.id, nickname);
-      const selfPlayerId = rooms.playerIdFor(socket.id)!;
+      const selfPlayerId = rooms.playerIdFor(socket.id);
+      if (!selfPlayerId) throw new Error('Room membership was not created.');
       socket.join(state.code);
       io.to(state.code).emit('room:state', state);
       return { ok: true, state, selfPlayerId };
@@ -70,7 +71,8 @@ export function registerSocketHandlers(
     socket.on('room:join', (payload, acknowledge) => respond('room:join', acknowledge, () => {
       const { code, nickname } = parseJoinPayload(payload);
       const state = rooms.join(socket.id, code, nickname);
-      const selfPlayerId = rooms.playerIdFor(socket.id)!;
+      const selfPlayerId = rooms.playerIdFor(socket.id);
+      if (!selfPlayerId) throw new Error('Room membership was not created.');
       socket.join(code);
       io.to(code).emit('room:state', state);
       return { ok: true, state, selfPlayerId };
