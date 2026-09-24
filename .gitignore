@@ -11,4 +11,3 @@ coverage/
 *.pfx
 service-account*.json
 credentials*.json
-
