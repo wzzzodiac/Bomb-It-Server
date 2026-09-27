@@ -13,6 +13,9 @@ export interface ClientToServerEvents {
   'room:create': (payload: unknown, acknowledge: (result: MembershipAck) => void) => void;
   'room:join': (payload: unknown, acknowledge: (result: MembershipAck) => void) => void;
   'room:leave': (acknowledge: (result: ActionAck) => void) => void;
+  'room:return-to-lobby': (acknowledge: (result: RoomAck) => void) => void;
+  'room:add-bot': (payload: unknown, acknowledge: (result: RoomAck) => void) => void;
+  'room:remove-bot': (payload: unknown, acknowledge: (result: RoomAck) => void) => void;
   'player:set-ready': (payload: unknown, acknowledge: (result: RoomAck) => void) => void;
   'room:start-match': (acknowledge: (result: StartMatchAck) => void) => void;
   'player:input': (payload: unknown, acknowledge: (result: InputAck) => void) => void;
@@ -24,6 +27,7 @@ export interface ServerToClientEvents {
   'room:state': (state: PublicRoomState) => void;
   'room:error': (error: ErrorResponse) => void;
   'room:left': (payload: { code: string }) => void;
+  'room:reset': (state: PublicRoomState) => void;
   'match:started': (state: InitialMatchState) => void;
   'match:state': (state: MatchState) => void;
   'match:explosion': (event: MatchExplosion) => void;

@@ -1,7 +1,7 @@
 import type { ServerConfig } from '../config.js';
 import type { RoomErrorCode } from '../rooms/types.js';
 
-export type ProtectedEvent = 'room:create' | 'room:join' | 'room:leave' | 'player:set-ready' | 'room:start-match' | 'player:input' | 'player:place-bomb';
+export type ProtectedEvent = 'room:create' | 'room:join' | 'room:leave' | 'room:return-to-lobby' | 'room:add-bot' | 'room:remove-bot' | 'player:set-ready' | 'room:start-match' | 'player:input' | 'player:place-bomb';
 
 type Window = { startedAt: number; count: number };
 type SocketUsage = { address: string; events: Window; creates: Window; inputs: Window; invalidRequests: number };

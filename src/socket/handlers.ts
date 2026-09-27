@@ -3,7 +3,7 @@ import { RoomManager } from '../rooms/roomManager.js';
 import { MatchManager } from '../match/matchManager.js';
 import { RoomError } from '../rooms/types.js';
 import { AbuseGuard, type ProtectedEvent } from '../security/abuseGuard.js';
-import { parseBombPayload, parseCreatePayload, parseJoinPayload, parseMovementPayload, parseReadyPayload } from '../validation/input.js';
+import { parseBombPayload, parseCreatePayload, parseJoinPayload, parseMovementPayload, parseReadyPayload, parseRemoveBotPayload } from '../validation/input.js';
 import type { ActionAck, BombAck, ClientToServerEvents, ErrorResponse, InputAck, MembershipAck, RoomAck, ServerToClientEvents, StartMatchAck } from './events.js';
 
 export function registerSocketHandlers(
@@ -33,7 +33,8 @@ export function registerSocketHandlers(
     function leaveJoinedRoom() {
       const playerId = rooms.playerIdFor(socket.id);
       const { code, state } = rooms.leave(socket.id);
-      if (playerId) matches.leave(code, playerId);
+      if (!state) matches.closeRoom(code);
+      else if (playerId) matches.leave(code, playerId);
       return { code, state: state ? rooms.state(code) : null };
     }
 
@@ -91,6 +92,28 @@ export function registerSocketHandlers(
       socket.emit('room:left', { code });
       if (state) io.to(code).emit('room:state', state);
       return { ok: true };
+    }));
+
+    socket.on('room:return-to-lobby', acknowledge => respond('room:return-to-lobby', acknowledge, () => {
+      const { state, reset } = matches.returnToLobby(socket.id);
+      if (reset) {
+        io.to(state.code).emit('room:reset', state);
+        io.to(state.code).emit('room:state', state);
+      }
+      return { ok: true, state };
+    }));
+
+    socket.on('room:add-bot', (payload, acknowledge) => respond('room:add-bot', acknowledge, () => {
+      parseBombPayload(payload);
+      const state = rooms.addBot(socket.id);
+      io.to(state.code).emit('room:state', state);
+      return { ok: true, state };
+    }));
+
+    socket.on('room:remove-bot', (payload, acknowledge) => respond('room:remove-bot', acknowledge, () => {
+      const state = rooms.removeBot(socket.id, parseRemoveBotPayload(payload));
+      io.to(state.code).emit('room:state', state);
+      return { ok: true, state };
     }));
 
     socket.on('player:set-ready', (payload, acknowledge) => respond('player:set-ready', acknowledge, () => {

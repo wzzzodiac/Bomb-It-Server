@@ -47,7 +47,7 @@ export class RoomManager {
     }
     if (!code) throw new RoomError('INTERNAL_ERROR', 'Could not allocate a room code.');
     const player = this.player(socketId, nickname);
-    this.rooms.set(code, { code, hostPlayerId: player.id, status: 'lobby', players: [player], createdAt: this.now() });
+    this.rooms.set(code, { code, hostPlayerId: player.id, status: 'lobby', players: [player], createdAt: this.now(), nextBotNumber: 1 });
     this.membership.set(socketId, { code, playerId: player.id });
     return this.state(code);
   }
@@ -71,11 +71,15 @@ export class RoomManager {
     const room = this.rooms.get(member.code);
     if (!room) throw new Error('Room membership is inconsistent.');
     room.players = room.players.filter(player => player.id !== member.playerId);
-    if (room.players.length === 0) {
+    if (!room.players.some(player => player.kind === 'human')) {
       this.rooms.delete(room.code);
       return { code: room.code, state: null };
     }
-    if (room.hostPlayerId === member.playerId) room.hostPlayerId = room.players[0]!.id;
+    if (room.hostPlayerId === member.playerId) {
+      const nextHost = room.players.find(player => player.kind === 'human');
+      if (!nextHost) throw new Error('Room has no human host candidate.');
+      room.hostPlayerId = nextHost.id;
+    }
     return { code: room.code, state: this.state(room.code) };
   }
 
@@ -91,7 +95,33 @@ export class RoomManager {
     return this.state(room.code);
   }
 
-  prepareMatchStart(socketId: string): { code: string; players: Array<{ id: string; nickname: string }> } {
+  addBot(socketId: string): PublicRoomState {
+    const room = this.hostLobby(socketId);
+    if (room.players.length >= this.maxPlayersPerRoom) throw new RoomError('ROOM_FULL', 'Room is full.');
+    const number = room.nextBotNumber++;
+    room.players.push({ id: this.makePlayerId(), kind: 'bot', nickname: `Bot ${number}`, ready: true, connected: true });
+    return this.state(room.code);
+  }
+
+  removeBot(socketId: string, botId: string): PublicRoomState {
+    const room = this.hostLobby(socketId);
+    const index = room.players.findIndex(player => player.id === botId && player.kind === 'bot');
+    if (index < 0) throw new RoomError('BOT_NOT_FOUND', 'Bot not found.');
+    room.players.splice(index, 1);
+    return this.state(room.code);
+  }
+
+  private hostLobby(socketId: string): Room {
+    const member = this.membership.get(socketId);
+    if (!member) throw new RoomError('NOT_IN_ROOM', 'Socket is not in a room.');
+    const room = this.rooms.get(member.code);
+    if (!room) throw new Error('Room membership is inconsistent.');
+    if (room.status !== 'lobby') throw new RoomError('ROOM_NOT_JOINABLE', 'Room is not in the lobby.');
+    if (room.hostPlayerId !== member.playerId) throw new RoomError('NOT_HOST', 'Only the host can manage bots.');
+    return room;
+  }
+
+  prepareMatchStart(socketId: string): { code: string; players: Array<{ id: string; nickname: string; kind: 'human' | 'bot' }> } {
     const member = this.membership.get(socketId);
     if (!member) throw new RoomError('NOT_IN_ROOM', 'Socket is not in a room.');
     const room = this.rooms.get(member.code);
@@ -100,7 +130,7 @@ export class RoomManager {
     if (room.hostPlayerId !== member.playerId) throw new RoomError('NOT_HOST', 'Only the host can start.');
     if (room.players.length < 2) throw new RoomError('NOT_ENOUGH_PLAYERS', 'At least two players are required.');
     if (room.players.some(player => !player.ready)) throw new RoomError('PLAYERS_NOT_READY', 'All players must be ready.');
-    return { code: room.code, players: room.players.map(player => ({ id: player.id, nickname: player.nickname })) };
+    return { code: room.code, players: room.players.map(player => ({ id: player.id, nickname: player.nickname, kind: player.kind })) };
   }
 
   commitMatchStart(socketId: string): PublicRoomState {
@@ -118,6 +148,17 @@ export class RoomManager {
     return this.state(code);
   }
 
+  returnToLobby(socketId: string): PublicRoomState {
+    const member = this.membership.get(socketId);
+    if (!member) throw new RoomError('NOT_IN_ROOM', 'Socket is not in a room.');
+    const room = this.rooms.get(member.code);
+    if (!room) throw new Error('Room membership is inconsistent.');
+    if (room.status !== 'finished') throw new RoomError('MATCH_NOT_FINISHED', 'Match has not finished.');
+    room.status = 'lobby';
+    for (const player of room.players) player.ready = player.kind === 'bot';
+    return this.state(room.code);
+  }
+
   roomCodeFor(socketId: string): string | undefined { return this.membership.get(socketId)?.code; }
   playerIdFor(socketId: string): string | undefined { return this.membership.get(socketId)?.playerId; }
 
@@ -129,7 +170,7 @@ export class RoomManager {
       status: room.status,
       hostPlayerId: room.hostPlayerId,
       players: room.players.map(player => ({
-        id: player.id, nickname: player.nickname, ready: player.ready, host: player.id === room.hostPlayerId
+        id: player.id, nickname: player.nickname, ready: player.ready, host: player.id === room.hostPlayerId, kind: player.kind
       }))
     };
   }
@@ -139,6 +180,6 @@ export class RoomManager {
   }
 
   private player(socketId: string, nickname: string): Player {
-    return { id: this.makePlayerId(), socketId, nickname, ready: false, connected: true };
+    return { id: this.makePlayerId(), kind: 'human', socketId, nickname, ready: false, connected: true };
   }
 }

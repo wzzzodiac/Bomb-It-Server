@@ -37,7 +37,7 @@ export type InitialMatchState = MatchState & {
 
 export type InternalMatch = {
   state: MatchState; arena: Arena; lastAcceptedMove: Map<string, number>;
-  bombTimers: Map<string, unknown>; flames: Map<string, number>; nextBombId: number; result: MatchResult | null;
+  bombTimers: Map<string, unknown>; botTimers: Map<string, unknown>; botNextBomb: Map<string, number>; flames: Map<string, number>; nextBombId: number; result: MatchResult | null;
 };
 export type MoveResult = { ok: true; moved: true; revision: number } |
   { ok: true; moved: false; reason: 'blocked' | 'cooldown' };

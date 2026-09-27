@@ -69,3 +69,9 @@ export function parseBombPayload(value: unknown): void {
     throw new RoomError('INVALID_PAYLOAD', 'Bomb intent must be an empty object.');
   }
 }
+
+export function parseRemoveBotPayload(value: unknown): string {
+  const botId = oneField(value, 'botId');
+  if (typeof botId !== 'string' || !botId || botId.length > 128) throw new RoomError('INVALID_PAYLOAD', 'Bot ID is invalid.');
+  return botId;
+}

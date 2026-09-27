@@ -1,5 +1,7 @@
 import { allocateSpawns, blastTiles, createArena, tileAt } from '../game/arena.js';
 import { FLAME_MS, FUSE_MS, getArenaSizeForPlayerCount, key, VECTORS, type Direction } from '../game/config.js';
+import { canEscapeBomb, dangerTiles, findEscapeDirection } from '../game/botLogic.js';
+import { DIRECTIONS } from '../game/config.js';
 import { RoomManager } from '../rooms/roomManager.js';
 import { RoomError } from '../rooms/types.js';
 import type { BombResult, InitialMatchState, InternalMatch, MatchBomb, MatchExplosion, MatchPublication, MatchResult, MatchState, MoveResult, TileChange } from './types.js';
@@ -23,7 +25,7 @@ export class MatchManager {
   ) {}
 
   get matchCount(): number { return this.matches.size; }
-  get timerCount(): number { return [...this.matches.values()].reduce((count, match) => count + match.bombTimers.size, 0); }
+  get timerCount(): number { return [...this.matches.values()].reduce((count, match) => count + match.bombTimers.size + match.botTimers.size, 0); }
   setPublisher(publisher: (code: string, publication: MatchPublication) => void): void { this.publisher = publisher; }
 
   start(socketId: string): { room: ReturnType<RoomManager['state']>; match: InitialMatchState } {
@@ -38,10 +40,14 @@ export class MatchManager {
         bombCapacity: 1, fireRange: 2, activeBombs: 0
       }))
     };
-    this.matches.set(code, { state, arena, lastAcceptedMove: new Map(), bombTimers: new Map(), flames: new Map(), nextBombId: 1, result: null });
+    this.matches.set(code, { state, arena, lastAcceptedMove: new Map(), bombTimers: new Map(), botTimers: new Map(), botNextBomb: new Map(), flames: new Map(), nextBombId: 1, result: null });
     try {
       const match = this.initialSnapshot(code);
       const room = this.rooms.commitMatchStart(socketId);
+      for (const player of players) if (player.kind === 'bot') {
+        this.getMatch(code).botNextBomb.set(player.id, this.now() + 1700 + this.random() * 1200);
+        this.scheduleBot(code, player.id, 240 + this.random() * 140);
+      }
       return { room, match };
     } catch (error) {
       this.deleteMatch(code);
@@ -81,7 +87,12 @@ export class MatchManager {
   }
 
   move(socketId: string, direction: Direction): MoveResult {
-    const { code, playerId, match } = this.memberMatch(socketId);
+    const { code, playerId } = this.memberMatch(socketId);
+    return this.movePlayer(code, playerId, direction);
+  }
+
+  private movePlayer(code: string, playerId: string, direction: Direction): MoveResult {
+    const match = this.getMatch(code);
     if (match.state.status !== 'playing') return { ok: true, moved: false, reason: 'blocked' };
     const player = match.state.players.find(candidate => candidate.id === playerId);
     if (!player?.alive) return { ok: true, moved: false, reason: 'blocked' };
@@ -110,7 +121,12 @@ export class MatchManager {
   }
 
   placeBomb(socketId: string): BombResult {
-    const { code, playerId, match } = this.memberMatch(socketId);
+    const { code, playerId } = this.memberMatch(socketId);
+    return this.placeBombForPlayer(code, playerId);
+  }
+
+  private placeBombForPlayer(code: string, playerId: string): BombResult {
+    const match = this.getMatch(code);
     if (match.state.status !== 'playing') return { ok: true, placed: false, reason: 'finished' };
     const player = match.state.players.find(candidate => candidate.id === playerId);
     if (!player?.alive) return { ok: true, placed: false, reason: 'dead' };
@@ -126,6 +142,47 @@ export class MatchManager {
     match.state.revision++;
     this.publish(code, match);
     return { ok: true, placed: true, revision: match.state.revision };
+  }
+
+  private scheduleBot(code: string, botId: string, delayMs: number): void {
+    const match = this.matches.get(code);
+    if (!match || match.state.status !== 'playing') return;
+    match.botTimers.set(botId, this.scheduler.set(() => {
+      match.botTimers.delete(botId);
+      this.tickBot(code, botId);
+      if (match.state.status === 'playing' && match.state.players.some(player => player.id === botId && player.alive)) {
+        this.scheduleBot(code, botId, 240 + this.random() * 140);
+      }
+    }, delayMs));
+  }
+
+  private tickBot(code: string, botId: string): void {
+    const match = this.matches.get(code);
+    const bot = match?.state.players.find(player => player.id === botId);
+    if (!match || !bot?.alive || match.state.status !== 'playing') return;
+    const blocked = new Set([
+      ...match.state.bombs.map(bomb => key(bomb.position)),
+      ...match.state.players.filter(player => player.id !== botId && player.alive).map(player => key(player.position))
+    ]);
+    const threats = match.state.bombs.map(bomb => ({ position: bomb.position, range: bomb.range }));
+    const danger = dangerTiles(match.arena, threats);
+    const escape = findEscapeDirection(match.arena, bot.position, threats, blocked);
+    const options = DIRECTIONS.map(direction => {
+      const vector = VECTORS[direction];
+      return { direction, point: { x: bot.position.x + vector.x, y: bot.position.y + vector.y } };
+    }).filter(option => tileAt(match.arena, option.point) === 'floor' && !blocked.has(key(option.point)));
+    const safe = options.filter(option => !danger.has(key(option.point)) && (match.flames.get(key(option.point)) ?? 0) <= this.now());
+    const choices = safe.length ? safe : options;
+    const direction = escape ?? choices[Math.min(choices.length - 1, Math.floor(this.random() * choices.length))]?.direction;
+    if (direction) this.movePlayer(code, botId, direction);
+    if (match.state.status !== 'playing' || !bot.alive) return;
+    if (this.now() >= (match.botNextBomb.get(botId) ?? 0)) {
+      const prospective = [...threats, { position: bot.position, range: bot.fireRange }];
+      if (!danger.has(key(bot.position)) && canEscapeBomb(match.arena, bot.position, prospective, blocked) && this.random() < 0.52) {
+        this.placeBombForPlayer(code, botId);
+      }
+      match.botNextBomb.set(botId, this.now() + 1700 + this.random() * 1700);
+    }
   }
 
   private explode(code: string, firstBombId: string): void {
@@ -181,6 +238,20 @@ export class MatchManager {
     return this.snapshot(code);
   }
 
+  closeRoom(code: string): void { this.deleteMatch(code); }
+
+  returnToLobby(socketId: string): { state: ReturnType<RoomManager['state']>; reset: boolean } {
+    const code = this.rooms.roomCodeFor(socketId);
+    if (!code) throw new RoomError('NOT_IN_ROOM', 'Socket is not in a room.');
+    const room = this.rooms.state(code);
+    if (room.status === 'lobby') return { state: room, reset: false };
+    const match = this.getMatch(code);
+    if (room.status !== 'finished' || match.state.status !== 'finished') throw new RoomError('MATCH_NOT_FINISHED', 'Match has not finished.');
+    const state = this.rooms.returnToLobby(socketId);
+    this.deleteMatch(code);
+    return { state, reset: true };
+  }
+
   private finishIfResolved(code: string, match: InternalMatch): MatchResult | undefined {
     if (match.result || match.state.status !== 'playing') return undefined;
     const alive = match.state.players.filter(player => player.alive);
@@ -207,6 +278,9 @@ export class MatchManager {
   private clearTimers(match: InternalMatch): void {
     for (const timer of match.bombTimers.values()) this.scheduler.clear(timer);
     match.bombTimers.clear();
+    for (const timer of match.botTimers.values()) this.scheduler.clear(timer);
+    match.botTimers.clear();
+    match.botNextBomb.clear();
   }
 
   private deleteMatch(code: string): void {

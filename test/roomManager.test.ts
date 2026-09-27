@@ -18,7 +18,7 @@ test('creates a room with a server-owned host and a public state without socket 
   assert.equal(state.code, 'ABCD');
   assert.equal(state.status, 'lobby');
   assert.equal(state.hostPlayerId, 'player-1');
-  assert.deepEqual(state.players, [{ id: 'player-1', nickname: 'Alice', ready: false, host: true }]);
+  assert.deepEqual(state.players, [{ id: 'player-1', nickname: 'Alice', ready: false, host: true, kind: 'human' }]);
   assert.equal(JSON.stringify(state).includes('socket-a'), false);
   assert.equal(rooms.roomCount, 1);
 });
