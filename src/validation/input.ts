@@ -63,3 +63,9 @@ export function parseMovementPayload(value: unknown): { direction: Direction } {
   }
   return { direction: direction as Direction };
 }
+
+export function parseBombPayload(value: unknown): void {
+  if (typeof value !== 'object' || value === null || Array.isArray(value) || Object.keys(value).length !== 0) {
+    throw new RoomError('INVALID_PAYLOAD', 'Bomb intent must be an empty object.');
+  }
+}

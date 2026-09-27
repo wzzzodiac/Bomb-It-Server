@@ -1,7 +1,7 @@
 import type { ServerConfig } from '../config.js';
 import type { RoomErrorCode } from '../rooms/types.js';
 
-export type ProtectedEvent = 'room:create' | 'room:join' | 'room:leave' | 'player:set-ready' | 'room:start-match' | 'player:input';
+export type ProtectedEvent = 'room:create' | 'room:join' | 'room:leave' | 'player:set-ready' | 'room:start-match' | 'player:input' | 'player:place-bomb';
 
 type Window = { startedAt: number; count: number };
 type SocketUsage = { address: string; events: Window; creates: Window; inputs: Window; invalidRequests: number };
@@ -51,7 +51,7 @@ export class AbuseGuard {
     const usage = this.sockets.get(socketId);
     if (!usage) return false;
     const now = this.now();
-    if (event === 'player:input') return this.consume(usage.inputs, this.limits.maxInputsPerWindow, this.limits.inputWindowMs, now);
+    if (event === 'player:input' || event === 'player:place-bomb') return this.consume(usage.inputs, this.limits.maxInputsPerWindow, this.limits.inputWindowMs, now);
     if (!this.consume(usage.events, this.limits.maxEventsPerWindow, this.limits.eventWindowMs, now)) return false;
     return event !== 'room:create' ||
       this.consume(usage.creates, this.limits.maxRoomCreatesPerWindow, this.limits.roomCreateWindowMs, now);

@@ -1,6 +1,8 @@
 export type Point = { x: number; y: number };
 export type Direction = 'up' | 'down' | 'left' | 'right';
 export type ArenaSize = { cols: number; rows: number };
+export const FUSE_MS = 2000;
+export const FLAME_MS = 450;
 
 export const ARENA_PRESETS = {
   small: { cols: 17, rows: 13 },

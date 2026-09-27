@@ -111,6 +111,13 @@ export class RoomManager {
     return { ...state, status: 'playing' };
   }
 
+  finishMatch(code: string): PublicRoomState {
+    const room = this.rooms.get(code);
+    if (!room) throw new Error('Room was removed before match finished.');
+    room.status = 'finished';
+    return this.state(code);
+  }
+
   roomCodeFor(socketId: string): string | undefined { return this.membership.get(socketId)?.code; }
   playerIdFor(socketId: string): string | undefined { return this.membership.get(socketId)?.playerId; }
 

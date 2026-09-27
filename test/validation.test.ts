@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readConfig } from '../src/config.js';
 import { RoomError } from '../src/rooms/types.js';
-import { parseCreatePayload, parseJoinPayload, parseMovementPayload, parseNickname, parseReadyPayload, parseRoomCode } from '../src/validation/input.js';
+import { parseBombPayload, parseCreatePayload, parseJoinPayload, parseMovementPayload, parseNickname, parseReadyPayload, parseRoomCode } from '../src/validation/input.js';
 
 function rejects(action: () => unknown, code: RoomError['code']): void {
   assert.throws(action, error => error instanceof RoomError && error.code === code);
@@ -32,6 +32,10 @@ test('event payloads reject extra client identity and non-boolean ready', () => 
   assert.deepEqual(parseMovementPayload({ direction: 'left' }), { direction: 'left' });
   rejects(() => parseMovementPayload({ direction: 'diagonal' }), 'INVALID_PAYLOAD');
   rejects(() => parseMovementPayload({ direction: 'up', x: 7 }), 'INVALID_PAYLOAD');
+  assert.equal(parseBombPayload({}), undefined);
+  rejects(() => parseBombPayload({ x: 7 }), 'INVALID_PAYLOAD');
+  rejects(() => parseBombPayload({ ownerId: 'chosen' }), 'INVALID_PAYLOAD');
+  rejects(() => parseBombPayload(null), 'INVALID_PAYLOAD');
 });
 
 test('configuration defaults and caps room limits while respecting PORT and origin', () => {

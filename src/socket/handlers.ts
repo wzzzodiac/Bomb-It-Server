@@ -3,8 +3,8 @@ import { RoomManager } from '../rooms/roomManager.js';
 import { MatchManager } from '../match/matchManager.js';
 import { RoomError } from '../rooms/types.js';
 import { AbuseGuard, type ProtectedEvent } from '../security/abuseGuard.js';
-import { parseCreatePayload, parseJoinPayload, parseMovementPayload, parseReadyPayload } from '../validation/input.js';
-import type { ActionAck, ClientToServerEvents, ErrorResponse, InputAck, MembershipAck, RoomAck, ServerToClientEvents, StartMatchAck } from './events.js';
+import { parseBombPayload, parseCreatePayload, parseJoinPayload, parseMovementPayload, parseReadyPayload } from '../validation/input.js';
+import type { ActionAck, BombAck, ClientToServerEvents, ErrorResponse, InputAck, MembershipAck, RoomAck, ServerToClientEvents, StartMatchAck } from './events.js';
 
 export function registerSocketHandlers(
   io: Server<ClientToServerEvents, ServerToClientEvents>,
@@ -12,6 +12,12 @@ export function registerSocketHandlers(
   matches: MatchManager,
   guard: AbuseGuard
 ): void {
+  matches.setPublisher((code, publication) => {
+    if (publication.explosion) io.to(code).emit('match:explosion', publication.explosion);
+    io.to(code).emit('match:state', publication.state);
+    if (publication.result) io.to(code).emit('match:result', publication.result);
+    if (publication.roomFinished) io.to(code).emit('room:state', rooms.state(code));
+  });
   io.use((socket, next) => {
     if (!guard.admit(socket.id, socket.handshake.address)) {
       next(new Error('Too many connections.'));
@@ -27,7 +33,8 @@ export function registerSocketHandlers(
     function leaveJoinedRoom() {
       const playerId = rooms.playerIdFor(socket.id);
       const { code, state } = rooms.leave(socket.id);
-      return { code, state, matchState: playerId ? matches.leave(code, playerId) : null };
+      if (playerId) matches.leave(code, playerId);
+      return { code, state: state ? rooms.state(code) : null };
     }
 
     function reject(acknowledge: unknown, error: unknown): void {
@@ -39,7 +46,7 @@ export function registerSocketHandlers(
       if (guard.recordInvalid(socket.id, result.code)) socket.disconnect();
     }
 
-    function respond<T extends MembershipAck | RoomAck | ActionAck | StartMatchAck | InputAck>(event: ProtectedEvent, acknowledge: unknown, action: () => T): void {
+    function respond<T extends MembershipAck | RoomAck | ActionAck | StartMatchAck | InputAck | BombAck>(event: ProtectedEvent, acknowledge: unknown, action: () => T): void {
       if (!guard.allowEvent(socket.id, event)) {
         reject(acknowledge, new RoomError('RATE_LIMITED', 'Too many requests. Try again shortly.'));
         return;
@@ -79,11 +86,10 @@ export function registerSocketHandlers(
     }));
 
     socket.on('room:leave', acknowledge => respond('room:leave', acknowledge, () => {
-      const { code, state, matchState } = leaveJoinedRoom();
+      const { code, state } = leaveJoinedRoom();
       socket.leave(code);
       socket.emit('room:left', { code });
       if (state) io.to(code).emit('room:state', state);
-      if (matchState) io.to(code).emit('match:state', matchState);
       return { ok: true };
     }));
 
@@ -104,11 +110,12 @@ export function registerSocketHandlers(
     socket.on('player:input', (payload, acknowledge) => respond('player:input', acknowledge, () => {
       const { direction } = parseMovementPayload(payload);
       const result = matches.move(socket.id, direction);
-      if (result.moved) {
-        const code = rooms.roomCodeFor(socket.id)!;
-        io.to(code).emit('match:state', matches.snapshot(code));
-      }
       return result;
+    }));
+
+    socket.on('player:place-bomb', (payload, acknowledge) => respond('player:place-bomb', acknowledge, () => {
+      parseBombPayload(payload);
+      return matches.placeBomb(socket.id);
     }));
 
     socket.on('disconnect', () => {
@@ -116,9 +123,8 @@ export function registerSocketHandlers(
       guard.release(socket.id);
       const code = rooms.roomCodeFor(socket.id);
       if (!code) return;
-      const { state, matchState } = leaveJoinedRoom();
+      const { state } = leaveJoinedRoom();
       if (state) io.to(code).emit('room:state', state);
-      if (matchState) io.to(code).emit('match:state', matchState);
     });
   });
 }

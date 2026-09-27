@@ -31,3 +31,19 @@ export function createArena({ cols, rows, playerCount, random = Math.random }: A
     return !safe.has(`${x},${y}`) && random() < 0.58 ? 'crate' : 'floor';
   }));
 }
+
+// The first crate is included, then blocks the ray. Stone walls are never included.
+export function blastTiles(arena: Arena, origin: Point, range: number): Point[] {
+  const result = [origin];
+  for (const direction of DIRECTIONS) {
+    const step = VECTORS[direction];
+    for (let distance = 1; distance <= range; distance++) {
+      const point = { x: origin.x + step.x * distance, y: origin.y + step.y * distance };
+      const tile = tileAt(arena, point);
+      if (tile === 'wall') break;
+      result.push(point);
+      if (tile === 'crate') break;
+    }
+  }
+  return result;
+}

@@ -55,3 +55,14 @@ test('invalid strikes disconnect at the threshold while normal room errors do no
   guard.release('one');
   assert.equal(guard.trackedAddressCount, 0);
 });
+
+test('bomb intent shares the bounded gameplay bucket without treating normal refusal as malicious', () => {
+  const guard = new AbuseGuard({ ...readConfig({}), maxInputsPerWindow: 2 });
+  guard.admit('one', '127.0.0.1');
+  assert.equal(guard.allowEvent('one', 'player:input'), true);
+  assert.equal(guard.allowEvent('one', 'player:place-bomb'), true);
+  assert.equal(guard.allowEvent('one', 'player:place-bomb'), false);
+  assert.equal(guard.recordInvalid('one', 'MATCH_NOT_STARTED'), false);
+  assert.equal(guard.recordInvalid('one', 'INVALID_PAYLOAD'), false);
+  guard.release('one');
+});
