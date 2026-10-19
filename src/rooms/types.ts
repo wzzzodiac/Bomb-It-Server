@@ -15,6 +15,9 @@ export type Room = {
   status: RoomStatus;
   players: Player[];
   createdAt: number;
+  lobbyOpenedAt: number;
+  lastLobbyActivityAt: number;
+  finishedAt: number | null;
   nextBotNumber: number;
 };
 

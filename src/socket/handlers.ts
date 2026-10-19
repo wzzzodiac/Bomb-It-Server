@@ -10,7 +10,8 @@ export function registerSocketHandlers(
   io: Server<ClientToServerEvents, ServerToClientEvents>,
   rooms: RoomManager,
   matches: MatchManager,
-  guard: AbuseGuard
+  guard: AbuseGuard,
+  policy: { now: () => number; joinTimeoutMs: number } = { now: Date.now, joinTimeoutMs: 15_000 }
 ): void {
   matches.setPublisher((code, publication) => {
     if (publication.explosion) io.to(code).emit('match:explosion', publication.explosion);
@@ -28,6 +29,11 @@ export function registerSocketHandlers(
   });
 
   io.on('connection', socket => {
+    socket.data.joinDeadline = policy.now() + policy.joinTimeoutMs;
+    socket.use((_packet, next) => {
+      if (!guard.allowPacket(socket.id)) { socket.disconnect(true); return; }
+      next();
+    });
     socket.emit('server:hello', { service: 'bomb-it-server' });
 
     function leaveJoinedRoom() {
@@ -44,7 +50,7 @@ export function registerSocketHandlers(
         : { code: 'INTERNAL_ERROR', message: 'Request could not be processed.' };
       socket.emit('room:error', result);
       if (typeof acknowledge === 'function') acknowledge({ ok: false, error: result });
-      if (guard.recordInvalid(socket.id, result.code)) socket.disconnect();
+      if (guard.recordInvalid(socket.id, result.code)) socket.disconnect(true);
     }
 
     function respond<T extends MembershipAck | RoomAck | ActionAck | StartMatchAck | InputAck | BombAck>(event: ProtectedEvent, acknowledge: unknown, action: () => T): void {
@@ -88,6 +94,7 @@ export function registerSocketHandlers(
 
     socket.on('room:leave', acknowledge => respond('room:leave', acknowledge, () => {
       const { code, state } = leaveJoinedRoom();
+      socket.data.joinDeadline = policy.now() + policy.joinTimeoutMs;
       socket.leave(code);
       socket.emit('room:left', { code });
       if (state) io.to(code).emit('room:state', state);
@@ -118,8 +125,10 @@ export function registerSocketHandlers(
 
     socket.on('player:set-ready', (payload, acknowledge) => respond('player:set-ready', acknowledge, () => {
       const { ready } = parseReadyPayload(payload);
+      const code = rooms.roomCodeFor(socket.id);
+      const before = code ? rooms.state(code).players.find(p => p.id === rooms.playerIdFor(socket.id))?.ready : undefined;
       const state = rooms.setReady(socket.id, ready);
-      io.to(state.code).emit('room:state', state);
+      if (before !== ready) io.to(state.code).emit('room:state', state);
       return { ok: true, state };
     }));
 

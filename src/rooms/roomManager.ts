@@ -2,12 +2,15 @@ import { randomInt, randomUUID } from 'node:crypto';
 import { MAX_PLAYERS_PER_ROOM, MAX_ROOMS, ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH } from '../config.js';
 import { RoomError, type Player, type PublicRoomState, type Room } from './types.js';
 
-type RoomManagerOptions = {
+export type RoomManagerOptions = {
   maxRooms?: number;
   maxPlayersPerRoom?: number;
   makeCode?: () => string;
   makePlayerId?: () => string;
   now?: () => number;
+  lobbyIdleMs?: number;
+  lobbyMaxMs?: number;
+  finishedIdleMs?: number;
 };
 
 function randomRoomCode(): string {
@@ -22,6 +25,7 @@ export class RoomManager {
   private readonly makeCode: () => string;
   private readonly makePlayerId: () => string;
   private readonly now: () => number;
+  private readonly lifecycle: { lobbyIdleMs: number; lobbyMaxMs: number; finishedIdleMs: number };
 
   constructor(options: RoomManagerOptions = {}) {
     this.maxRooms = options.maxRooms ?? MAX_ROOMS;
@@ -29,6 +33,8 @@ export class RoomManager {
     this.makeCode = options.makeCode ?? randomRoomCode;
     this.makePlayerId = options.makePlayerId ?? randomUUID;
     this.now = options.now ?? Date.now;
+    this.lifecycle = { lobbyIdleMs: options.lobbyIdleMs ?? 15 * 60_000,
+      lobbyMaxMs: options.lobbyMaxMs ?? 60 * 60_000, finishedIdleMs: options.finishedIdleMs ?? 5 * 60_000 };
     if (!Number.isInteger(this.maxRooms) || this.maxRooms < 1 || this.maxRooms > MAX_ROOMS ||
         !Number.isInteger(this.maxPlayersPerRoom) || this.maxPlayersPerRoom < 1 || this.maxPlayersPerRoom > MAX_PLAYERS_PER_ROOM) {
       throw new Error('Room limits must stay within product limits.');
@@ -47,7 +53,8 @@ export class RoomManager {
     }
     if (!code) throw new RoomError('INTERNAL_ERROR', 'Could not allocate a room code.');
     const player = this.player(socketId, nickname);
-    this.rooms.set(code, { code, hostPlayerId: player.id, status: 'lobby', players: [player], createdAt: this.now(), nextBotNumber: 1 });
+    this.rooms.set(code, { code, hostPlayerId: player.id, status: 'lobby', players: [player],
+      createdAt: this.now(), lobbyOpenedAt: this.now(), lastLobbyActivityAt: this.now(), finishedAt: null, nextBotNumber: 1 });
     this.membership.set(socketId, { code, playerId: player.id });
     return this.state(code);
   }
@@ -61,6 +68,7 @@ export class RoomManager {
     const player = this.player(socketId, nickname);
     room.players.push(player);
     this.membership.set(socketId, { code, playerId: player.id });
+    this.touchLobby(room);
     return this.state(code);
   }
 
@@ -80,6 +88,7 @@ export class RoomManager {
       if (!nextHost) throw new Error('Room has no human host candidate.');
       room.hostPlayerId = nextHost.id;
     }
+    this.touchLobby(room);
     return { code: room.code, state: this.state(room.code) };
   }
 
@@ -91,7 +100,7 @@ export class RoomManager {
     if (room.status !== 'lobby') throw new RoomError('ROOM_NOT_JOINABLE', 'Room is not in the lobby.');
     const player = room.players.find(candidate => candidate.id === member.playerId);
     if (!player) throw new Error('Player membership is inconsistent.');
-    player.ready = ready;
+    if (player.ready !== ready) { player.ready = ready; this.touchLobby(room); }
     return this.state(room.code);
   }
 
@@ -100,6 +109,7 @@ export class RoomManager {
     if (room.players.length >= this.maxPlayersPerRoom) throw new RoomError('ROOM_FULL', 'Room is full.');
     const number = room.nextBotNumber++;
     room.players.push({ id: this.makePlayerId(), kind: 'bot', nickname: `Bot ${number}`, ready: true, connected: true });
+    this.touchLobby(room);
     return this.state(room.code);
   }
 
@@ -108,6 +118,7 @@ export class RoomManager {
     const index = room.players.findIndex(player => player.id === botId && player.kind === 'bot');
     if (index < 0) throw new RoomError('BOT_NOT_FOUND', 'Bot not found.');
     room.players.splice(index, 1);
+    this.touchLobby(room);
     return this.state(room.code);
   }
 
@@ -145,6 +156,7 @@ export class RoomManager {
     const room = this.rooms.get(code);
     if (!room) throw new Error('Room was removed before match finished.');
     room.status = 'finished';
+    room.finishedAt = this.now();
     return this.state(code);
   }
 
@@ -155,12 +167,34 @@ export class RoomManager {
     if (!room) throw new Error('Room membership is inconsistent.');
     if (room.status !== 'finished') throw new RoomError('MATCH_NOT_FINISHED', 'Match has not finished.');
     room.status = 'lobby';
+    room.lobbyOpenedAt = this.now();
+    room.lastLobbyActivityAt = this.now();
+    room.finishedAt = null;
     for (const player of room.players) player.ready = player.kind === 'bot';
     return this.state(room.code);
   }
 
   roomCodeFor(socketId: string): string | undefined { return this.membership.get(socketId)?.code; }
   playerIdFor(socketId: string): string | undefined { return this.membership.get(socketId)?.playerId; }
+
+  private touchLobby(room: Room): void {
+    if (room.status === 'lobby') room.lastLobbyActivityAt = this.now();
+  }
+
+  expire(now = this.now()): Array<{ code: string; socketIds: string[] }> {
+    const expired: Array<{ code: string; socketIds: string[] }> = [];
+    for (const room of this.rooms.values()) {
+      const staleLobby = room.status === 'lobby' &&
+        (now - room.lastLobbyActivityAt >= this.lifecycle.lobbyIdleMs || now - room.lobbyOpenedAt >= this.lifecycle.lobbyMaxMs);
+      const staleResult = room.status === 'finished' && room.finishedAt !== null && now - room.finishedAt >= this.lifecycle.finishedIdleMs;
+      if (!staleLobby && !staleResult) continue;
+      const socketIds = room.players.flatMap(player => player.socketId ? [player.socketId] : []);
+      for (const id of socketIds) this.membership.delete(id);
+      this.rooms.delete(room.code);
+      expired.push({ code: room.code, socketIds });
+    }
+    return expired;
+  }
 
   state(code: string): PublicRoomState {
     const room = this.rooms.get(code);

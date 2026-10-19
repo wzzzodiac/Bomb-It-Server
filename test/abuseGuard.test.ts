@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readConfig } from '../src/config.js';
 import { AbuseGuard, resolveClientAddress } from '../src/security/abuseGuard.js';
 
-test('direct-peer IP limit rejects excess connections and releases slots without retaining counters', () => {
+test('direct-peer IP limit rejects excess connections and releases active connection slots', () => {
   const guard = new AbuseGuard({ ...readConfig({}), maxConnectionsPerIp: 2 });
   assert.equal(resolveClientAddress('::ffff:127.0.0.1'), '127.0.0.1');
   assert.equal(guard.admit('one', '::ffff:127.0.0.1'), true);

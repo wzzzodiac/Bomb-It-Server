@@ -47,7 +47,7 @@ Invalid or out-of-range numeric limits fall back to the defaults. Upper bounds a
 ## Socket contract
 
 Client events require an acknowledgement callback. Successful `room:create` and `room:join` acknowledgements return `{ok:true,state,selfPlayerId}`, where `selfPlayerId` is the caller's server-generated logical player ID. Other successful room-state acknowledgements return `{ok:true,state}`; `room:leave` returns `{ok:true}`. Failures return `{ok:false,error:{code,message}}` and emit `room:error`.
-Rate-limited events return the stable `RATE_LIMITED` code and do not execute the room action. Repeated invalid payloads eventually disconnect the socket. A connection rejected by the per-IP cap receives a short transport-level error.
+Rate-limited events return the stable `RATE_LIMITED` code and do not execute the room action. Repeated invalid payloads or sustained rate-limit violations close the entire transport. Rate-limit strikes expire with the event window; ordinary gameplay refusals remain exempt. A connection rejected by the per-IP cap receives a short transport-level error.
 
 | Client event | Payload | Result |
 | --- | --- | --- |
@@ -71,6 +71,10 @@ Gameplay input has its own 120-per-10-second rate bucket shared by movement and 
 The public state contains `code`, `status`, `hostPlayerId`, and players with `id`, `nickname`, `ready`, `host`, and `kind` (`human` or `bot`). It excludes socket IDs. Bots have server-generated logical IDs and no socket membership. Only humans can host; if the last human leaves, the room and its match timers are removed. Codes are four characters from an alphabet without easily confused characters. Nicknames are trimmed, whitespace is collapsed, and length is limited to 18 characters.
 
 The server enforces at most **5 rooms** with **6 players each**. A socket can occupy only one room. Origin checking limits browser connections to `CLIENT_ORIGIN`; it is not authentication.
+
+Security hardening: lobby reservations expire after 15 minutes without a meaningful change or 60 minutes since lobby entry; finished results expire after 5 minutes. Active matches are exempt, and returning to the lobby starts a fresh deadline. Cleanup removes room membership and match/bot/bomb timers. Repeated readiness values do not broadcast or extend a lobby reservation.
+
+The process admits at most 40 Engine.IO transports, including connections without a Socket.IO namespace. Unjoined transports expire after 15 seconds; leaving a room rearms that deadline. Opening attempts are limited to 80/minute per direct peer. Room creation also has a reconnect-persistent peer budget: `max(5, 2 * MAX_ROOM_CREATES_PER_WINDOW)` per creation window (6/minute by default), alongside the existing per-socket limit. Address histories are bounded to 1024 entries per budget and expire. Every Socket.IO event, including unknown/no-ACK events, counts toward a transport flood ceiling of `max(60, MAX_EVENTS_PER_WINDOW + MAX_INPUTS_PER_WINDOW)` per second (160 by default).
 
 The abuse counters and rooms are process-local. The IP cap uses the direct transport peer address and does not trust `X-Forwarded-For`; an ingress proxy may cause multiple visitors to share one counted address. A future deployment must explicitly establish a trusted proxy boundary before using forwarded client IPs. Clients without an Origin header may connect, so Origin checks are not an identity system. These limits are not shared across multiple Cloud Run instances.
 
